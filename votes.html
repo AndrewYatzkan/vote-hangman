@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<title>Votes</title>
+	<style>
+		@import url('https://fonts.googleapis.com/css2?family=Roboto&display=swap');
+		@import url('https://fonts.googleapis.com/css2?family=Roboto+Mono&display=swap');
+
+		body {
+			background: #161512 linear-gradient(to bottom, #2e2a24, #161512 116px) no-repeat;
+			color: white;
+			font-size: 2rem;
+			font-family: 'Roboto', sans-serif;
+		}
+
+		button {
+			position: fixed;
+			top: 20px;
+			right: 20px;
+		}
+
+		#hangman {
+			position: fixed;
+			top: 100px;
+			left: 400px;
+		}
+	</style>
+</head>
+<body>
+<div style="margin-left: 20px;">
+	<div id="word">
+		<span style="font-size: 5rem;" id="word"></span>
+		<span id="timeWrapper" style="font-size: 0.8rem; color: lightgray">(<span id="time">15</span>s remaining to vote)</span>
+	</div>
+	<span style="font-size: 1.75rem;">Guessed: <span id="guessed"></span></span><br>
+	<button style="font-size: 1rem;color: #787878; background: linear-gradient(to bottom, #f5f5f5 0%, #ededed 100%); padding: 0.5em; text-align: center; border: none; box-shadow: 0 2px 5px 0 rgba(0,0,0,0.225); border-radius: 3px; outline: none; cursor: pointer;" onclick="endVote();">end vote now</button>
+	<script src="/socket.io/socket.io.js"></script>
+	<div id="votes"></div>
+	<div id="hangman" style="font-family: 'Roboto Mono', monospace;"></div>
+</div>
+<script>
+	const hangman = [`
+  +---+
+  |   |
+      |
+      |
+      |
+      |
+=========`, `
+  +---+
+  |   |
+  O   |
+      |
+      |
+      |
+=========`,`
+  +---+
+  |   |
+  O   |
+  |   |
+      |
+      |
+=========`, `
+  +---+
+  |   |
+  O   |
+ /|   |
+      |
+      |
+=========`, `
+  +---+
+  |   |
+  O   |
+ /|\\  |
+      |
+      |
+=========`, `
+  +---+
+  |   |
+  O   |
+ /|\\  |
+ /    |
+      |
+=========`, `
+  +---+
+  |   |
+  O   |
+ /|\\  |
+ / \\  |
+      |
+=========`,`
+  +---+
+  |   |
+  O   |
+ /|\\  |
+ / \\  |
+      |
+=========
+(chat loses) D:`].map(i => i.replace(/ /g, "&nbsp;").replace(/\n/g, '<br>'));
+
+	const wordEl = document.querySelector('span#word');
+	const timeEl = document.querySelector('span#time');
+	const votesEl = document.querySelector('#votes');
+	const endBtn = document.querySelector('button');
+	const guessedEl = document.querySelector('span#guessed');
+	const hangmanEl = document.querySelector('div#hangman');
+
+	const queryString = window.location.search;
+	const urlParams = new URLSearchParams(queryString);
+	var time = parseInt(urlParams.get('time'));
+	var word = urlParams.get('word');
+	var winningLetter = false;
+	var guessed = [];
+	var hmanIndex = 0;
+
+	const socket = io();
+
+	if (word && !isNaN(time)) {
+		hangmanEl.innerHTML = hangman[hmanIndex];
+		socket.emit('game over', true); // reset when tab refreshed
+
+		timeEl.innerText = time;
+		word = word.toLowerCase().trim();
+		wordEl.innerText = word.replace(/[a-z]/g, '_ ');
+
+		socket.on('votes', votes => {
+			var wordToShow = '';
+			for (var i = 0; i < word.length; i++) {
+				let letter = word[i];
+				if (guessed.includes(letter))
+					wordToShow += `${letter} `;
+				else
+					wordToShow += `_ `;
+			}
+			wordEl.innerText = wordToShow;
+			if (wordToShow.replace(/\s/g, '') === word) {
+				// game over
+				socket.emit('game over', true);
+				clearInterval(countdownTimer);
+				timeEl.parentElement.remove();
+				endBtn.remove();
+				guessedEl.parentElement.remove();
+			}
+
+			var sortedVotes = Object.keys(votes).map(key => [key, votes[key]]).sort((a, b) => b[1] - a[1]);
+			votesEl.innerHTML = '';
+			for (i in sortedVotes) {
+				let vote = sortedVotes[i];
+				var [letter, numVotes] = vote;
+				if (i == 0) winningLetter = letter;
+				var ul = document.createElement('ul');
+				ul.style.paddingLeft = '5px';
+				var text = document.createTextNode(`${letter} (${numVotes} vote${numVotes > 1 ? 's' : ''})`);
+				ul.appendChild(text);
+				votesEl.appendChild(ul);
+			}
+		});
+
+		var countdownTimer = setInterval(() => {
+			timeEl.innerText = parseInt(timeEl.innerText) - 1;
+			if (timeEl.innerText === "0") endVote();
+		}, 1000);
+	} else {
+		document.body.innerHTML = 'You need to specify a word by appending \'?word=...\' to the URL, and the time chat has to vote by appending \'&time=...\'<br>Ex: /?word=syzygy&time=15';
+	}
+
+	function endVote() {
+		timeEl.innerText = time;
+		socket.emit('vote end', winningLetter || false);
+		if (winningLetter) {
+			guessed.push(winningLetter);
+			if (!word.split('').includes(winningLetter)) {
+				hmanIndex++;
+				if (hmanIndex > 7) hmanIndex = 7;
+				hangmanEl.innerHTML = hangman[hmanIndex];
+			}
+			guessedEl.innerHTML += `<span style="margin-right: 5px;">${winningLetter}<span>`;
+		}
+		winningLetter = false;
+	}
+</script>
+</body>
+</html>
